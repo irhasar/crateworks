@@ -270,6 +270,29 @@ means what you think it means. This has cost two separate debugging rounds.
 - **`cargo clippy` prints nothing on a cached build.** If a lint seems to have
   vanished, `touch crates/*/src/lib.rs` (or `find crates -name '*.rs' -exec touch {} +`)
   to force a rebuild before believing the result.
+- **`needless_range_loop` fired in `ebics` and `pades` on clippy 1.100.** Both
+  walked `0..self.limbs.len()` to index `self.limbs`, which the lint now rejects.
+  The fix is `for (index, &left) in self.limbs.iter().enumerate()` - the body
+  still needs `index` for `other.limbs.get(index)`, so `.enumerate()` is right
+  and `.zip()` would not compile against the shorter operand. Neither crate had
+  changed; a clippy bump is enough.
+- **A written HL7 value must be escaped, and a reader cannot tell when it was
+  not.** `mllp`'s ACK builders wrote MSA-3 raw, so a failure text holding `|`
+  ended the field: hl7apy read `MSA-3` as `"bad "` and the rest of the text
+  became phantom fields. The reply parsed cleanly, which is why nothing caught
+  it - the gate's MSA-3 was `"ok"`, and no case carried a delimiter. Any value
+  an `ACK` echoes from the peer (MSH-3..MSH-6, MSH-10, the failure text, the
+  ERR location) is attacker-influenced, so writing it unescaped is a
+  correctness and injection bug. `Field::escape` is the inverse of
+  `Field::unescape`; use it for every value a builder writes. When checking
+  this against `hl7apy`, compute the expectation from the reply's own MSH-1 and
+  MSH-2: a message using `#` and `*` leaves `|` and `^` alone, so a hardcoded
+  default-delimiter expectation fails on a case that is correct.
+- **A corpus case can be malformed and look like a crate bug.** A raw `~` in
+  MSH-5 made it a repeating field, which MSH-5 is not; the reference then
+  reported the value differently and the crate looked wrong. Escape delimiters
+  in the fixture when the point is that a value *holds* one, or the case tests
+  the parser's repetition split instead.
 - **`xmlkit` name matching.** `Element::child` and `children_named` match the
   full name including the prefix, so `child(el, "IssueDateTime")` does **not**
   find `ram:IssueDateTime`. Match on the local name. `Element::text()`
